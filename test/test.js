@@ -139,7 +139,7 @@ Set.prototype = {
   add: function (member, opts) {
     if (this.contains(member, opts)) return false;
     var key = this._hash(member, opts && opts.hashBy);
-    this._members[key] = (opts && opts.hashBy || this.hashBy) ? member : true;
+    this._members[key] = (typeof member !== 'string') ? member : true;
     this.length++;
     return true;
   },
@@ -179,13 +179,16 @@ Set.prototype = {
   toArray: function () {
     var mems = this._members;
     function resolveMember (key) {
-      resolveMember = (typeof mems[key] === 'boolean')
-        ? function (key) { return key; }
-        : function (key) { return mems[key]; };
-      return resolveMember(key);
+      if (typeof mems[key] === 'boolean') {
+        return key;
+      } else {
+        console.log(mems[key]);
+        return mems[key];
+      }
     }
-    return _.map(_.keys(mems), resolveMember);
-    return this._members;
+    var arr = _.map(_.keys(mems), resolveMember);
+    console.log(arr);
+    return arr;
   },
   _hash: function (member, hashBy) {
     hashBy || (hashBy = this.hashBy);
@@ -1168,6 +1171,11 @@ test('a set can set a default hashing strategy by which it can hash incoming obj
   ok(s.contains(obj));
   ok(s.remove(obj));
   ok(!s.contains(obj));
+});
+
+test('a set should be able to return an array representation of itself via toArray()', function () {
+  var s = new Set([1, 2, 3, 4, 5]);
+  same([1, 2, 3, 4, 5], s.toArray());
 });
 
 window.module('ZSet');

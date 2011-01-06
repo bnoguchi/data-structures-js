@@ -125,7 +125,7 @@ function Set (members, opts) {
   opts = opts || {};
   if (arguments.length === 1 && !_.isArray(arguments[0])) {
     opts = members;
-    members = [];
+    members = null;
   }
   if (opts.hashBy) this.hashBy = opts.hashBy;
   if (members) this.madd(members);
@@ -182,12 +182,10 @@ Set.prototype = {
       if (typeof mems[key] === 'boolean') {
         return key;
       } else {
-        console.log(mems[key]);
         return mems[key];
       }
     }
     var arr = _.map(_.keys(mems), resolveMember);
-    console.log(arr);
     return arr;
   },
   _hash: function (member, hashBy) {
@@ -959,39 +957,66 @@ module.exports = require(from)
 
 }, 
 './../lib/zset': function(require, exports, module) {
-function ZSet (initialMembers, opts) {
+var _ = require('underscore')._;
+
+function ZSet (members, opts) {
   this._members = {};
   this._orderedKeys = [];
   this.length = 0;
 
-  var member;
-  if (initialMembers) for (var i = 0, l = initialMembers.length; i < l; i++) {
-    member = initialMembers[i];
-    this.add(member, opts);
+  opts = opts || {};
+  if (arguments.length === 1 && !_.isArray(arguments[0])) {
+    opts = members;
+    members = null;
   }
+  if (opts.hashBy) this.hashBy = opts.hashBy;
+  if (opts.sortBy) this.sortBy = opts.sortBy;
+  if (members) this.madd(members, opts);
 }
 
 ZSet.prototype = {
   contains: function (member, opts) {
-    var key = this._hash(member, opts.hashBy);
+    var key = this._hash(member, opts && opts.hashBy);
     return !!this._members[key];
   },
   add: function (member, opts, sortVal) {
-    sortVal || (sortVal = +new Date); // Default to insertion order
     if (this.contains(member, opts)) return false;
-    var key = this._hash(member, opts.hashBy);
+    var key = this._hash(member, opts && opts.hashBy);
     this._members[key] = member;
+    sortVal = this._resolveSortVal(sortVal || this.sortBy);
     this._orderedKeys.splice(this._indexOf(member, opts, sortVal), 0, {key: key, sortVal: sortVal});
     this.length++;
     return true;
   },
-  remove: function (member, opts) {
+  madd: function (members, opts) {
+    var i = members.length
+      , numAdded = 0;
+    while (i--) {
+      numAdded += this.add(members[i], opts) ? 1 : 0;
+    }
+    return numAdded;
+  },
+  remove: function (member, opts, sortVal) {
     if (!this.contains(member, opts)) return false;
-    var key = this._hash(member, opts.hashBy);
+    var key = this._hash(member, opts && opts.hashBy);
     delete this._members[key];
-    this._orderedKeys.splice(this._indexOf(member, opts), 1);
+    sortVal = this._resolveSortVal(sortVal);
+    this._orderedKeys.splice(this._indexOf(member, opts, sortVal || this.sortBy), 1);
     this.length--;
     return true;
+  },
+  clear: function () {
+    this._members = {};
+    this._orderedKeys = [];
+    this.length = 0;
+  },
+  mremove: function (members, opts) {
+    var i = members.length
+      , numRemoved = 0;
+    while (i--) {
+      numRemoved += this.remove(members[i], opts) ? 1 : 0;
+    }
+    return numRemoved;
   },
   forEach: function (block, context) {
     var keys = this._orderedKeys
@@ -1015,10 +1040,15 @@ ZSet.prototype = {
     }
   },
   _hash: function (member, hashBy) {
-    return hashBy ? member[hashBy] : member;
+    hashBy || (hashBy = this.hashBy);
+    switch (typeof hashBy) {
+      case 'string': return member[hashBy];
+      case 'function': return hashBy(member);
+      default: return member;
+    }
   },
   _indexOf: function (member, opts, sortVal) {
-    var key = this._hash(member, opts.hashBy)
+    var key = this._hash(member, opts && opts.hashBy)
       , keys = this._orderedKeys
       , begin = 0
       , end = keys.length - 1
@@ -1027,7 +1057,7 @@ ZSet.prototype = {
       if (keys[i].key === key) return i;
       if (keys[i].sortVal < sortVal) {
         begin = i;
-      } else if (keys[i].sortVal > sortVal) {
+      } else if (keys[i].sortVal >= sortVal) {
         end = i;
       }
       i = parseInt( (end + begin) / 2, 10);
@@ -1045,12 +1075,23 @@ ZSet.prototype = {
       if (currSortVal === sortVal) return i;
       if (currSortVal < sortVal) {
         begin = i;
-      } else if (currSortVal > sortVal) {
+      } else if (currSortVal >= sortVal) {
         end = i;
       }
       i = parseInt( (end + begin) / 2, 10);
     }
     return i;
+  },
+  _resolveSortVal: function (sortVal) {
+    var sortValType = typeof sortVal;
+    if (sortValType === 'undefined') {
+      return +new Date; // Default to insertion order
+    } else if (sortValType === 'function') {
+      return sortVal(member);
+    } else if (sortValType === 'string') {
+      return member[sortVal];
+    }
+    return sortVal;
   }
 };
 
@@ -1060,7 +1101,8 @@ module.exports = ZSet;
 });
 require.ensure(function() {
 var Set = require('../lib/set')
-  , ZSet = require('../lib/zset');
+  , ZSet = require('../lib/zset')
+  , _ = require('underscore')._;
 
 window.module('Set');
 test('an empty set should have length 0', function () {
@@ -1175,7 +1217,7 @@ test('a set can set a default hashing strategy by which it can hash incoming obj
 
 test('a set should be able to return an array representation of itself via toArray()', function () {
   var s = new Set([1, 2, 3, 4, 5]);
-  same([1, 2, 3, 4, 5], s.toArray());
+  same([1, 2, 3, 4, 5], _.sortBy(s.toArray(), function (m) { return m; }));
 });
 
 window.module('ZSet');
@@ -1184,7 +1226,63 @@ test('an empty zset should have length 0', function () {
   equals(s.length, 0);
 });
 
-window.onload = onload;
+test('should return true when a non-member becomes a member of the zset', function () {
+  var s = new ZSet();
+  ok(s.add(1));
+});
+
+test('should return false if we try to add a member that already exists', function () {
+  var s = new ZSet();
+  ok(s.add('hello'));
+  equals(s.add('hello'), false);
+});
+
+test('should be able to add multiple members', function () {
+  var s = new ZSet();
+  s.madd(['hello', 'world']);
+  ok(s.contains('hello'));
+  ok(s.contains('world'));
+});
+
+test('should return the number of members actually added when adding multiple members', function () {
+  var s = new ZSet();
+  s.add('hello');
+  equals(s.madd(['hello', 'world', 'foo', 'bar']), 3);
+});
+
+test('the set constructor should be able to initialize a set with an array of members', function () {
+  var s = new ZSet(['hello', 'world']);
+  ok(s.contains('hello'));
+  ok(s.contains('world'));
+});
+
+test('a set should know if it does not contain an object', function () {
+  var s = new ZSet();
+  equals(s.contains('hello'), false);
+});
+
+test('a member can be removed from the zset', function () {
+  var s = new ZSet();
+  s.add('hello');
+  equals(s.remove('hello'), true);
+  equals(s.contains('hello'), false);
+});
+
+test('should return false if we try to remove a member that does not exist', function () {
+  var s = new ZSet();
+  equals(s.remove('hello'), false);
+});
+
+test('a zset can clear all its members', function () {
+  var s = new ZSet();
+  s.add('hello');
+  s.add('world');
+  equals(s.length, 2);
+  s.clear();
+  equals(s.length, 0);
+  equals(s.contains('hello'), false);
+  equals(s.contains('world'), false);
+});
 
 });
 })();

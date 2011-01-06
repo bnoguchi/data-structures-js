@@ -964,6 +964,8 @@ function ZSet (members, opts) {
   this._orderedKeys = [];
   this.length = 0;
 
+  this.nextDefaultSortVal = 0;
+
   opts = opts || {};
   if (arguments.length === 1 && !_.isArray(arguments[0])) {
     opts = members;
@@ -983,7 +985,7 @@ ZSet.prototype = {
     if (this.contains(member, opts)) return false;
     var key = this._hash(member, opts && opts.hashBy);
     this._members[key] = member;
-    sortVal = this._resolveSortVal(sortVal || this.sortBy);
+    sortVal = this._resolveSortVal(sortVal || this.sortBy, member);
     this._orderedKeys.splice(this._indexOf(member, opts, sortVal), 0, {key: key, sortVal: sortVal});
     this.length++;
     return true;
@@ -1000,7 +1002,7 @@ ZSet.prototype = {
     if (!this.contains(member, opts)) return false;
     var key = this._hash(member, opts && opts.hashBy);
     delete this._members[key];
-    sortVal = this._resolveSortVal(sortVal);
+    sortVal = this._resolveSortVal(sortVal || this.sortBy, member);
     this._orderedKeys.splice(this._indexOf(member, opts, sortVal || this.sortBy), 1);
     this.length--;
     return true;
@@ -1023,7 +1025,7 @@ ZSet.prototype = {
       , members = this._members
       , i = 0, l = keys.length;
     for (; i < l; i++) {
-      block.call(context, members[keys[i]], i)
+      block.call(context, members[keys[i].key], i)
     } 
   },
   /**
@@ -1051,14 +1053,14 @@ ZSet.prototype = {
     var key = this._hash(member, opts && opts.hashBy)
       , keys = this._orderedKeys
       , begin = 0
-      , end = keys.length - 1
+      , end = keys.length
       , i = parseInt(end / 2, 10);
     while (begin < end) {
       if (keys[i].key === key) return i;
       if (keys[i].sortVal < sortVal) {
-        begin = i;
+        begin = i + 1;
       } else if (keys[i].sortVal >= sortVal) {
-        end = i;
+        end = i - 1;
       }
       i = parseInt( (end + begin) / 2, 10);
     }
@@ -1067,25 +1069,25 @@ ZSet.prototype = {
   _indexOfSortVal: function (sortVal) {
     var keys = this._orderedKeys
       , begin = 0
-      , end = keys.length - 1
+      , end = keys.length
       , i = parseInt(end / 2, 10)
       , currSortVal;
     while (begin < end) {
       currSortVal = keys[i].sortVal;
       if (currSortVal === sortVal) return i;
       if (currSortVal < sortVal) {
-        begin = i;
+        begin = i + 1;
       } else if (currSortVal >= sortVal) {
-        end = i;
+        end = i - 1;
       }
       i = parseInt( (end + begin) / 2, 10);
     }
     return i;
   },
-  _resolveSortVal: function (sortVal) {
+  _resolveSortVal: function (sortVal, member) {
     var sortValType = typeof sortVal;
     if (sortValType === 'undefined') {
-      return +new Date; // Default to insertion order
+      return this.nextDefaultSortVal++; // Default to insertion order
     } else if (sortValType === 'function') {
       return sortVal(member);
     } else if (sortValType === 'string') {
@@ -1296,6 +1298,46 @@ test('a zset can clear all its members', function () {
   equals(s.contains('hello'), false);
   equals(s.contains('world'), false);
 });
+
+test('a zset can iterate through its members', function () {
+  var s = new ZSet()
+    , arr = ['foo', 'bar']
+    , i, l = arr.length;
+  for ( ; i < l; i++) s.add(arr[i]);
+  s.forEach(function (mem) {
+    equals(arr[++i], mem);
+  });
+});
+
+test('a zset should be able to specify a sortBy function for complex objects', function () {
+  var s = new ZSet({
+    sortBy: function (obj) {
+      return obj.id;
+    },
+    hashBy: function (obj) {
+      return obj.id;
+    }
+  });
+  var first = {id: 1, value: 'first'}
+    , second = {id: 2, value: 'second'}
+    , third = {id: 3, value: 'third'};
+  s.add(second);
+  s.add(first);
+  s.add(third);
+  s.forEach( function (mem, i) {
+    if (i === 0) {
+      equals(mem, first);
+    } else if (i === 1) {
+      equals(mem, second);
+    } else if (i === 2) {
+      equals(mem, third);
+    } else {
+      throw new Error("Index error");
+    }
+  });
+});
+
+// TODO Test sortVal
 
 });
 })();

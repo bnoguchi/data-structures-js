@@ -1268,6 +1268,19 @@ test('a member can be removed from the zset', function () {
   equals(s.contains('hello'), false);
 });
 
+asyncTest('removing a member should remove it from the internal data structures', function () {
+  var s = new ZSet();
+  s.add('hello');
+  ok(typeof s._members['hello'] !== 'undefined');
+  equals(s._orderedKeys.length, 1);
+  setTimeout(function () {
+    s.remove('hello');
+    ok(typeof s._members['hello'] === 'undefined');
+    equals(s._orderedKeys.length, 0);
+    start();
+  }, 1000);
+});
+
 test('should return false if we try to remove a member that does not exist', function () {
   var s = new ZSet();
   equals(s.remove('hello'), false);
